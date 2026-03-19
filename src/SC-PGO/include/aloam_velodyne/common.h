@@ -110,18 +110,21 @@ inline void att2q(const double pitch, const double roll, const double yaw,
             *z = cp * cr * sy + sp * sr * cy;
 }
 
-inline Pose6D transform(Pose6D poseFrom,const Eigen::Quaterniond &QImu)
+inline Pose6D transform(Pose6D poseFrom,const Eigen::Quaterniond &QImu) //transform local aloam trajectory frame into global gravoty-aligned frame
 {
   Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
   Eigen::Matrix4d T_from = Eigen::Matrix4d::Identity();
   Eigen::Matrix3d Rwi = QImu.matrix();
-  Eigen::Vector3d twi(0.121220, 0.010436, -0.152109);   //lidar ->gps外参数
+  Eigen::Vector3d twi(0.121220, 0.010436, -0.152109);   //lidar ->gps外参数  //NEW: lidar's origin measured form IMU origin
  
   double W = 1, X = 0, Y = 0, Z = 0;
   Eigen::Quaterniond Qtemp;
   // printf("poseFrom--pitch,roll,yaw= %f,%f,%f\n",poseFrom.pitch*180/M_PI,poseFrom.roll*180/M_PI,poseFrom.yaw*180/M_PI);
   att2q(poseFrom.pitch, poseFrom.roll, poseFrom.yaw, &W,&X, &Y, &Z);
-  Qtemp.w() =W; Qtemp.x() =X;Qtemp.y() =Y;Qtemp.z() =Z;
+  Qtemp.w() =W; 
+  Qtemp.x() =X;
+  Qtemp.y() =Y;
+  Qtemp.z() =Z;
   Eigen::Vector3d t_from(poseFrom.x, poseFrom.y, poseFrom.z);
   Eigen::Matrix3d r_from = Qtemp.matrix();
 
@@ -170,61 +173,184 @@ inline sensor_msgs::Imu transformRotZ(sensor_msgs::Imu  rawIMU,const double degr
 }
 
 
-inline Eigen::Vector3d  transform_gps2lidar( Eigen::Vector3d xyz,const sensor_msgs::Imu  curr_IMU )
-{
+// inline Eigen::Vector3d  transform_gps2lidar( Eigen::Vector3d xyz,const sensor_msgs::Imu  curr_IMU )
+// {
 
+//   Eigen::Quaterniond  QImu;
+//   QImu.w() = curr_IMU.orientation.w;
+//   QImu.x() = curr_IMU.orientation.x;
+//   QImu.y() = curr_IMU.orientation.y;
+//   QImu.z() = curr_IMU.orientation.z;
+
+//   //Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+
+//   //Translation
+//   Eigen::Vector3d twi(0.121220, 0.010436, -0.152109);   //lidar ->gps外参数
+
+//   //Rotation
+//   Eigen::Matrix3d R_lidar_to_imu;
+//   // R_lidar_to_imu << -0.098611, -0.876852, 0.470538,
+//   //                   -0.991594,  0.126387, 0.027715,
+//   //                   -0.083772, -0.463850, -0.881944;
+
+//   R_lidar_to_imu << -0.010957, -0.823237,  0.567591,  
+//                     -0.999937,  0.007657, -0.008197, 
+//                      0.002402, -0.567645, -0.823270;
+
+
+
+//   //Eigen::Vector3d t_from(xyz[0], xyz[1], xyz[2]);
+//   //Eigen::Matrix3d r_from = QImu.matrix();
+
+//   Eigen::Matrix4d T_lidar_to_imu = Eigen::Matrix4d::Identity();
+
+//   //T.block<3, 1>(0, 3) = twi;
+//   T_lidar_to_imu.block<3, 3>(0, 0) = R_lidar_to_imu;
+//   T_lidar_to_imu.block<3, 1>(0, 3) = twi;
+
+//   Eigen::Matrix4d T_imu_from_lidar = T_lidar_to_imu.inverse();
+
+//   Eigen::Vector4d gps_pos_homogeneous;
+//   gps_pos_homogeneous << xyz[0], xyz[1], xyz[2], 1.0;
+//   Eigen::Vector4d lidar_pos_homogeneous = T_imu_from_lidar * gps_pos_homogeneous;
+
+//   //T_from.block<3, 3>(0, 0) = r_from;
+//   //T_from.block<3, 1>(0, 3) = t_from;
+
+//   //Eigen::Matrix4d T_to = T*T_from;
+//   //Eigen::Matrix4d T_to = T_lidar_to_imu*T_from;
+//   Eigen::Vector3d xyz_to;
+//   //xyz_to[0] = T_to(0,3);
+//   //xyz_to[1] = T_to(1,3);
+//   //xyz_to[2] = T_to(2,3);
+//   xyz_to[0] = lidar_pos_homogeneous[0];
+//   xyz_to[1] = lidar_pos_homogeneous[1];
+//   xyz_to[2] = lidar_pos_homogeneous[2];
+
+//   return xyz_to;
+
+// }
+
+
+inline Eigen::Vector3d transform_gps2lidar(Eigen::Vector3d xyz_gps, const sensor_msgs::Imu curr_IMU)
+{
   Eigen::Quaterniond  QImu;
   QImu.w() = curr_IMU.orientation.w;
   QImu.x() = curr_IMU.orientation.x;
   QImu.y() = curr_IMU.orientation.y;
   QImu.z() = curr_IMU.orientation.z;
 
-  //Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+  Eigen::Matrix3d R_imu_global = QImu.matrix();
 
-  //Translation
-  Eigen::Vector3d twi(0.121220, 0.010436, -0.152109);   //lidar ->gps外参数
+  // Your translation vector from IMU to LiDAR (Extracted from your matrix)
+  Eigen::Vector3d t_lidar_to_imu(0.121220, 0.010436, -0.152109); //NEW: lidar's origin measured form IMU origin
 
-  //Rotation
-  Eigen::Matrix3d R_lidar_to_imu;
-  // R_lidar_to_imu << -0.098611, -0.876852, 0.470538,
-  //                   -0.991594,  0.126387, 0.027715,
-  //                   -0.083772, -0.463850, -0.881944;
-
-  R_lidar_to_imu << -0.010957, -0.823237,  0.567591,  
-                    -0.999937,  0.007657, -0.008197, 
-                     0.002402, -0.567645, -0.823270;
-
-
-
-  //Eigen::Vector3d t_from(xyz[0], xyz[1], xyz[2]);
-  //Eigen::Matrix3d r_from = QImu.matrix();
-
-  Eigen::Matrix4d T_lidar_to_imu = Eigen::Matrix4d::Identity();
-
-  //T.block<3, 1>(0, 3) = twi;
-  T_lidar_to_imu.block<3, 3>(0, 0) = R_lidar_to_imu;
-  T_lidar_to_imu.block<3, 1>(0, 3) = twi;
-
-  Eigen::Matrix4d T_imu_from_lidar = T_lidar_to_imu.inverse();
-
-  Eigen::Vector4d gps_pos_homogeneous;
-  gps_pos_homogeneous << xyz[0], xyz[1], xyz[2], 1.0;
-  Eigen::Vector4d lidar_pos_homogeneous = T_imu_from_lidar * gps_pos_homogeneous;
-
-  //T_from.block<3, 3>(0, 0) = r_from;
-  //T_from.block<3, 1>(0, 3) = t_from;
-
-  //Eigen::Matrix4d T_to = T*T_from;
-  //Eigen::Matrix4d T_to = T_lidar_to_imu*T_from;
-  Eigen::Vector3d xyz_to;
-  //xyz_to[0] = T_to(0,3);
-  //xyz_to[1] = T_to(1,3);
-  //xyz_to[2] = T_to(2,3);
-  xyz_to[0] = lidar_pos_homogeneous[0];
-  xyz_to[1] = lidar_pos_homogeneous[1];
-  xyz_to[2] = lidar_pos_homogeneous[2];
-
-  return xyz_to;
-
+  // Correct math: LiDAR Global Position = GPS Global Position + (IMU Global Rotation * Local Offset)
+  // Note: This assumes your GPS receiver position is virtually mapped to the IMU origin.
+  Eigen::Vector3d xyz_lidar_global = xyz_gps + (R_imu_global * t_lidar_to_imu);
+  
+  return xyz_lidar_global;
 }
 
+
+// inline Eigen::Vector3d transform_gps2lidar(Eigen::Vector3d xyz, const sensor_msgs::Imu curr_IMU)
+// {
+//   Eigen::Quaterniond QImu;
+//   QImu.w() = curr_IMU.orientation.w;
+//   QImu.x() = curr_IMU.orientation.x;
+//   QImu.y() = curr_IMU.orientation.y;
+//   QImu.z() = curr_IMU.orientation.z;
+
+//   // 1. Define your specific LiDAR to IMU matrix (Pose of LiDAR in IMU frame)
+//   Eigen::Matrix4d T_lidar_in_imu;
+//   T_lidar_in_imu << -0.010957, -0.823237,  0.567591,  0.121220,
+//                     -0.999937,  0.007657, -0.008197,  0.010436,
+//                      0.002402, -0.567645, -0.823270, -0.152109,
+//                      0.0,       0.0,       0.0,       1.0;
+
+//   // 2. Construct the Pose of IMU in World frame (using GPS pos and IMU orientation)
+//   Eigen::Matrix4d T_imu_in_world = Eigen::Matrix4d::Identity();
+//   T_imu_in_world.block<3, 3>(0, 0) = QImu.matrix();
+//   T_imu_in_world.block<3, 1>(0, 3) = xyz;
+
+//   // 3. Calculate final LiDAR pose in World frame
+//   Eigen::Matrix4d T_lidar_in_world = T_imu_in_world * T_lidar_in_imu;
+
+//   Eigen::Vector3d xyz_to;
+//   xyz_to[0] = T_lidar_in_world(0,3);
+//   xyz_to[1] = T_lidar_in_world(1,3);
+//   xyz_to[2] = T_lidar_in_world(2,3);
+
+//   return xyz_to;
+
+// }
+
+
+// //% original code
+// inline Eigen::Vector3d  transform_gps2lidar( Eigen::Vector3d xyz,const sensor_msgs::Imu  curr_IMU )
+// {
+
+//   Eigen::Quaterniond  QImu;
+//   QImu.w() = curr_IMU.orientation.w;
+//   QImu.x() = curr_IMU.orientation.x;
+//   QImu.y() = curr_IMU.orientation.y;
+//   QImu.z() = curr_IMU.orientation.z;
+
+//   Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+//   Eigen::Matrix4d T_from = Eigen::Matrix4d::Identity();
+//   Eigen::Matrix3d Rwi = QImu.matrix();
+//   Eigen::Vector3d twi(0.121220, 0.010436, -0.152109);   //lidar ->gps外参数
+ 
+
+//   Eigen::Vector3d t_from(xyz[0], xyz[1], xyz[2]);
+//   Eigen::Matrix3d r_from = QImu.matrix();
+
+//   T.block<3, 1>(0, 3) = twi;
+//   T_from.block<3, 3>(0, 0) = r_from;
+//   T_from.block<3, 1>(0, 3) = t_from;
+
+//   Eigen::Matrix4d T_to = T*T_from;
+//   Eigen::Vector3d xyz_to;
+//   xyz_to[0] = T_to(0,3);
+//   xyz_to[1] = T_to(1,3);
+//   xyz_to[2] = T_to(2,3);
+  
+//   return xyz_to;
+
+// }
+
+
+// inline Eigen::Vector3d transform_gps2lidar(Eigen::Vector3d xyz, const sensor_msgs::Imu curr_IMU)
+// {
+//   Eigen::Quaterniond QImu;
+//   QImu.w() = curr_IMU.orientation.w;
+//   QImu.x() = curr_IMU.orientation.x;
+//   QImu.y() = curr_IMU.orientation.y;
+//   QImu.z() = curr_IMU.orientation.z;
+
+//   // 1. Define your specific LiDAR to IMU matrix
+//   Eigen::Matrix4d T_lidar_to_imu;
+//   T_lidar_to_imu << -0.010957, -0.823237,  0.567591,  0.121220,
+//                     -0.999937,  0.007657, -0.008197,  0.010436,
+//                      0.002402, -0.567645, -0.823270, -0.152109,
+//                      0.0,       0.0,       0.0,       1.0;
+
+//   // 2. Invert it to get IMU to LiDAR
+//   Eigen::Matrix4d T_imu_to_lidar = T_lidar_to_imu.inverse();
+
+//   // 3. Construct the World to IMU matrix (using GPS pos and IMU orientation)
+//   Eigen::Matrix4d T_world_to_imu = Eigen::Matrix4d::Identity();
+//   T_world_to_imu.block<3, 3>(0, 0) = QImu.matrix();
+//   T_world_to_imu.block<3, 1>(0, 3) = xyz;
+
+//   // 4. Calculate final World to LiDAR pose
+//   Eigen::Matrix4d T_world_to_lidar = T_world_to_imu * T_imu_to_lidar;
+
+//   Eigen::Vector3d xyz_to;
+//   xyz_to[0] = T_world_to_lidar(0,3);
+//   xyz_to[1] = T_world_to_lidar(1,3);
+//   xyz_to[2] = T_world_to_lidar(2,3);
+
+//   return xyz_to;
+
+// }

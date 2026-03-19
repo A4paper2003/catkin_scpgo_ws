@@ -162,13 +162,8 @@ Eigen::Vector3d iSamInputGPS(double latitude, double longitude, double altitude)
         gps_msg->position.altitude = altitude;
         geodesy::UTMPoint utm;
         geodesy::fromMsg(gps_msg->position, utm);
-        // Eigen::Vector3d xyz(utm.easting, utm.northing, utm.altitude);
+        Eigen::Vector3d xyz(utm.easting, utm.northing, utm.altitude);
 
-        double lidar_x = -utm.northing;
-        double lidar_y = utm.easting; 
-        double lidar_z = utm.altitude;
-        
-        Eigen::Vector3d xyz(lidar_x, lidar_y, lidar_z);
 
         if (!zero_utm)
         {
@@ -590,18 +585,18 @@ void process_pg()
 
 
             //Temporarily comment out as I cant receive IMU data
-            Pose6D pose_curr_ = getOdom(odometryBuf.front());
-            if(firstLoop)
-            {  
-                printf("firstLoop\n");
-                Q_first.w() = curr_IMU.orientation.w;
-                Q_first.x() = curr_IMU.orientation.x;
-                Q_first.y() = curr_IMU.orientation.y;
-                Q_first.z() = curr_IMU.orientation.z;
-                firstLoop = false;
-            }
-            Pose6D pose_curr = transform(pose_curr_,Q_first);
-            //Pose6D pose_curr = getOdom(odometryBuf.front()); 
+            // Pose6D pose_curr_ = getOdom(odometryBuf.front());
+            // if(firstLoop)
+            // {  
+            //     printf("firstLoop\n");
+            //     Q_first.w() = curr_IMU.orientation.w;
+            //     Q_first.x() = curr_IMU.orientation.x;
+            //     Q_first.y() = curr_IMU.orientation.y;
+            //     Q_first.z() = curr_IMU.orientation.z;
+            //     firstLoop = false;
+            // }
+            // Pose6D pose_curr = transform(pose_curr_,Q_first);
+            Pose6D pose_curr = getOdom(odometryBuf.front()); 
             odometryBuf.pop();
 
 
@@ -717,11 +712,62 @@ void process_pg()
                     // gps factor 
                     if(hasGPSforThisKF) {
                         // double curr_altitude_offseted = currGPS->altitude - gpsAltitudeInitOffset;
-                        gps_xyz = iSamInputGPS(currGPS->latitude,currGPS->longitude,currGPS->altitude);
+                        gps_xyz = iSamInputGPS(currGPS->latitude,currGPS->longitude,currGPS->altitude); //converts to local cartesian XYZ
+
+
+                        // 2. Define the yaw offset between UTM (East) and your LiDAR's starting heading
+                        // If they look 180 degrees apart, start with M_PI (180 degrees)
+                        double x_yaw_offset = 0.811* M_PI; // Try M_PI, M_PI/2, -M_PI/2, etc., until the paths align
+                        Eigen::Matrix3d X_yaw_offset;
+                        X_yaw_offset = Eigen::AngleAxisd(x_yaw_offset, Eigen::Vector3d::UnitX());
+
+                        double z_yaw_offset = M_PI/4;
+                        Eigen::Matrix3d Z_yaw_offset;
+                        Z_yaw_offset = Eigen::AngleAxisd(z_yaw_offset, Eigen::Vector3d::UnitZ());
+
+                        double y_yaw_offset = -0.0112*M_PI;
+                        Eigen::Matrix3d Y_yaw_offset;
+                        Y_yaw_offset = Eigen::AngleAxisd(y_yaw_offset, Eigen::Vector3d::UnitZ());
+
+
+
+                        // 3. ROTATE THE ENTIRE GPS TRAJECTORY to match the LiDAR map's heading
+                        Eigen::Vector3d gps_xyz_ =  X_yaw_offset * Z_yaw_offset * gps_xyz;
+
+                        // 4. Now apply your lever arm transformation 
+                        // Eigen::Vector3d gps_xyz_ = transform_gps2lidar(rotated_gps_xyz, curr_IMU);
+
                         
-                        Eigen::Vector3d gps_xyz_ = transform_gps2lidar(gps_xyz,curr_IMU);
+                        //Eigen::Vector3d gps_xyz_ = transform_gps2lidar(gps_xyz,curr_IMU);
                         odomGps.header.frame_id = "camera_init";
                         odomGps.header.stamp = currGPS->header.stamp;
+
+
+                        // // 1. Define your LiDAR to IMU Rotation Matrix
+                        // Eigen::Matrix3d R_L_to_I;
+                        // R_L_to_I << -0.010957, -0.823237,  0.567591,
+                        //             -0.999937,  0.007657, -0.008197,
+                        //              0.002402, -0.567645, -0.823270;
+
+                        // // 2. Get current IMU global orientation
+                        // Eigen::Quaterniond  QImu;
+                        // QImu.w() = curr_IMU.orientation.w;
+                        // QImu.x() = curr_IMU.orientation.x;
+                        // QImu.y() = curr_IMU.orientation.y;
+                        // QImu.z() = curr_IMU.orientation.z;
+
+                        // // 3. Calculate LiDAR's global orientation: R_global_lidar = R_global_imu * R_lidar_to_imu
+                        // Eigen::Matrix3d R_global_lidar = QImu.matrix() * R_L_to_I;
+                        // Eigen::Quaterniond Q_lidar_global(R_global_lidar);
+
+                        // // 4. Assign the properly flipped orientation
+                        // odomGps.header.stamp = currGPS->header.stamp;
+                        // odomGps.pose.pose.orientation.x = Q_lidar_global.x();
+                        // odomGps.pose.pose.orientation.y = Q_lidar_global.y();
+                        // odomGps.pose.pose.orientation.z = Q_lidar_global.z();
+                        // odomGps.pose.pose.orientation.w = Q_lidar_global.w();
+
+
                         odomGps.pose.pose.orientation.x = curr_IMU.orientation.x;
                         odomGps.pose.pose.orientation.y = curr_IMU.orientation.y;
                         odomGps.pose.pose.orientation.z = curr_IMU.orientation.z;
