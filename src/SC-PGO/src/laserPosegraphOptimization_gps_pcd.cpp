@@ -153,6 +153,9 @@ std::string pgKITTIformat, pgScansDirectory;
 std::string odomKITTIformat;
 std::fstream pgTimeSaveStream;
 
+// new
+boost::optional<double> initial_z_yaw;
+
  //*********************************************************************
 Eigen::Vector3d iSamInputGPS(double latitude, double longitude, double altitude)
 {
@@ -684,7 +687,6 @@ void process_pg()
             if( ! gtSAMgraphMade /* prior node */) {
                 const int init_node_idx = 0; 
 
-
                 gtsam::Pose3 poseOrigin = Pose6DtoGTSAMPose3(keyframePoses.at(init_node_idx));
                 // auto poseOrigin = gtsam::Pose3(gtsam::Rot3::RzRyRx(0.0, 0.0, 0.0), gtsam::Point3(0.0, 0.0, 0.0));
 
@@ -715,27 +717,87 @@ void process_pg()
                         gps_xyz = iSamInputGPS(currGPS->latitude,currGPS->longitude,currGPS->altitude); //converts to local cartesian XYZ
 
 
-                        // 2. Define the yaw offset between UTM (East) and your LiDAR's starting heading
-                        // If they look 180 degrees apart, start with M_PI (180 degrees)
-                        double x_yaw_offset = 0.811* M_PI; // Try M_PI, M_PI/2, -M_PI/2, etc., until the paths align
-                        Eigen::Matrix3d X_yaw_offset;
-                        X_yaw_offset = Eigen::AngleAxisd(x_yaw_offset, Eigen::Vector3d::UnitX());
+                        // //2. Define the yaw offset between UTM (East) and your LiDAR's starting heading
+                        // double x_yaw_offset = 0.811* M_PI; 
+                        // Eigen::Matrix3d X_yaw_offset;
+                        // X_yaw_offset = Eigen::AngleAxisd(x_yaw_offset, Eigen::Vector3d::UnitX());
 
-                        double z_yaw_offset = M_PI/4;
-                        Eigen::Matrix3d Z_yaw_offset;
-                        Z_yaw_offset = Eigen::AngleAxisd(z_yaw_offset, Eigen::Vector3d::UnitZ());
+                        // double z_yaw_offset = M_PI/4;
+                        // Eigen::Matrix3d Z_yaw_offset;
+                        // Z_yaw_offset = Eigen::AngleAxisd(z_yaw_offset, Eigen::Vector3d::UnitZ());
 
-                        double y_yaw_offset = -0.0112*M_PI;
-                        Eigen::Matrix3d Y_yaw_offset;
-                        Y_yaw_offset = Eigen::AngleAxisd(y_yaw_offset, Eigen::Vector3d::UnitZ());
+                        // double y_yaw_offset = -M_PI/2;
+                        // Eigen::Matrix3d Y_yaw_offset;
+                        // Y_yaw_offset = Eigen::AngleAxisd(y_yaw_offset, Eigen::Vector3d::UnitY());
+
+                        // Eigen::Vector3d gps_xyz_ =  X_yaw_offset * gps_xyz;
+
+                        // Eigen::Vector3d gps_xyz_ = gps_xyz;
+
+
+                        /////////////////////////////////////
+                        // ---------------------------------------------------------------- //
+                        // 1. Capture the initial IMU heading ONLY ONCE using optional
+                        // ---------------------------------------------------------------- //
+                        if (!initial_z_yaw && std::abs(curr_IMU.orientation.w) != 0) 
+                        {
+                            // Grab the quaternion from the current (first) IMU message
+                            Eigen::Quaterniond Q_imu_global(curr_IMU.orientation.w,
+                                                            curr_IMU.orientation.x,
+                                                            curr_IMU.orientation.y,
+                                                            curr_IMU.orientation.z);
+
+                            // Physical mounting offset (Keep 0.0 if LiDAR X and Pixhawk X point the same way)
+                            double ext_yaw = -M_PI/2.0; 
+                            Eigen::AngleAxisd yawAngle(ext_yaw, Eigen::Vector3d::UnitZ());
+                            Eigen::Quaterniond Q_imu_to_lidar(yawAngle);
+
+                            // Calculate absolute initial heading
+                            Eigen::Quaterniond Q_lidar_global = Q_imu_global * Q_imu_to_lidar;
+
+                            // CORRECT WAY: Use standard atan2 conversion to avoid Eigen's [0, PI] range limit
+                            double yaw = std::atan2(2.0 * (Q_lidar_global.w() * Q_lidar_global.z() + Q_lidar_global.x() * Q_lidar_global.y()), 
+                                                    1.0 - 2.0 * (Q_lidar_global.y() * Q_lidar_global.y() + Q_lidar_global.z() * Q_lidar_global.z()));
+
+                            // Set the optional variable so this block never runs again
+                            initial_z_yaw = -yaw; 
 
 
 
-                        // 3. ROTATE THE ENTIRE GPS TRAJECTORY to match the LiDAR map's heading
-                        Eigen::Vector3d gps_xyz_ =  X_yaw_offset * Z_yaw_offset * gps_xyz;
 
-                        // 4. Now apply your lever arm transformation 
-                        // Eigen::Vector3d gps_xyz_ = transform_gps2lidar(rotated_gps_xyz, curr_IMU);
+                            // Eigen::Vector3d euler = Q_lidar_global.toRotationMatrix().eulerAngles(2, 1, 0); // ZYX order
+                            // Eigen::Vector3d euler = Q_imu_global.toRotationMatrix().eulerAngles(2, 1, 0); // ZYX order
+                            
+                            // Set the optional variable so this block never runs again
+                            // initial_z_yaw = euler[0]; 
+
+                            ROS_INFO("!!!!!!!!!!!initial_z_yaw: %.3f deg", (*initial_z_yaw) * 180.0 / M_PI);
+                        }
+
+                        // 2. USAGE BLOCK (The part you need to wrap)
+                        // Use .has_value() for std::optional or simply (bool)initial_z_yaw for boost
+
+                        Eigen::Vector3d gps_xyz_;
+                        if (initial_z_yaw) 
+                        {
+                            Eigen::Matrix3d Z_yaw_offset_matrix = Eigen::AngleAxisd(*initial_z_yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+                            
+                            double x_tilt_offset = 0.811 * M_PI; 
+                            Eigen::Matrix3d X_yaw_offset_matrix = Eigen::AngleAxisd(x_tilt_offset, Eigen::Vector3d::UnitX()).toRotationMatrix();
+
+                            // double y_tilt_offset = 0; 
+                            // Eigen::Matrix3d Y_yaw_offset_matrix = Eigen::AngleAxisd(y_tilt_offset, Eigen::Vector3d::UnitZ()).toRotationMatrix(); // this is Z rotation!!! Im just lazy
+
+                            gps_xyz_ = X_yaw_offset_matrix * Z_yaw_offset_matrix * gps_xyz;
+                        }
+                        else 
+                        {
+                            // If we get here, it means we have GPS data but NO valid IMU heading yet.
+                            // We should skip this GPS point for now.
+                            ROS_WARN_THROTTLE(2, "Waiting for valid IMU heading before processing GPS...");
+                            // return; 
+                        }
+                        ////////////////////////////////////////////////////
 
                         
                         //Eigen::Vector3d gps_xyz_ = transform_gps2lidar(gps_xyz,curr_IMU);
@@ -1058,8 +1120,8 @@ int main(int argc, char **argv)
 
 	ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_registered_local", 100, laserCloudFullResHandler);
 	ros::Subscriber subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/aft_mapped_to_init", 100, laserOdometryHandler);
-	ros::Subscriber subGPS = nh.subscribe<sensor_msgs::NavSatFix>("/mavros/global_position/global", 100, gpsHandler);
-    ros::Subscriber subImu = nh.subscribe<sensor_msgs::Imu>("/mavros/imu/data_raw", 100, imu_cbk);
+	ros::Subscriber subGPS = nh.subscribe<sensor_msgs::NavSatFix>("/mavros/global_position/global1", 100, gpsHandler);
+    ros::Subscriber subImu = nh.subscribe<sensor_msgs::Imu>("/mavros/imu/data", 100, imu_cbk);
 
 
 	pubOdomAftPGO = nh.advertise<nav_msgs::Odometry>("/aft_pgo_odom", 100);
