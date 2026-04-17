@@ -1120,7 +1120,7 @@ int main(int argc, char **argv)
 
 	ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_registered_local", 100, laserCloudFullResHandler);
 	ros::Subscriber subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/aft_mapped_to_init", 100, laserOdometryHandler);
-	ros::Subscriber subGPS = nh.subscribe<sensor_msgs::NavSatFix>("/mavros/global_position/global1", 100, gpsHandler);
+	ros::Subscriber subGPS = nh.subscribe<sensor_msgs::NavSatFix>("/mavros/global_position/global", 100, gpsHandler);
     ros::Subscriber subImu = nh.subscribe<sensor_msgs::Imu>("/mavros/imu/data", 100, imu_cbk);
 
 

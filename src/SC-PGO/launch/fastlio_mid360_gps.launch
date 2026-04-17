@@ -34,7 +34,7 @@
     <param name="save_directory" type="string" value="/home/uav-fyp/Documents/sc_pgo_results/"/>  <!-- CHANGE THIS and end with / -->
     <!-- nodes -->
     <node pkg="aloam_velodyne" type="alaserPGO_gps" name="alaserPGO_gps" output="screen" /> <!-- Scan Context-based PGO -->
-        <remap from="/localization/gps/fix" to="/mavros/global_position/global1"/>
+        <remap from="/localization/gps/fix" to="/mavros/global_position/global"/>
         <remap from="/localization/imu/data" to="/mavros/imu/data_raw"/>
         <param name="gps_cov_x" value="0.8"/>
         <param name="gps_cov_y" value="0.8"/>
